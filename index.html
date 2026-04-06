@@ -1,0 +1,496 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>大牌判斷系統</title>
+<style>
+  *{box-sizing:border-box}
+  body{
+    margin:0;
+    background:#000;
+    color:#fff;
+    font-family:Arial,"Microsoft JhengHei",sans-serif;
+  }
+  .wrap{
+    max-width:980px;
+    margin:0 auto;
+    padding:10px;
+  }
+  h2{
+    margin:0 0 10px;
+    text-align:center;
+    font-size:22px;
+  }
+  .panel{
+    background:#111;
+    border:1px solid #2c2c2c;
+    border-radius:10px;
+    padding:10px;
+    margin-bottom:10px;
+  }
+  .slots{
+    display:grid;
+    grid-template-columns:repeat(6,1fr);
+    gap:6px;
+    margin-bottom:8px;
+  }
+  .slot{
+    min-height:58px;
+    background:#1b1b1b;
+    border:1px solid #333;
+    border-radius:8px;
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    justify-content:center;
+    padding:4px;
+  }
+  .slot.active{
+    border:2px solid #ffd54f;
+  }
+  .slot-label{
+    font-size:11px;
+    color:#aaa;
+    margin-bottom:2px;
+  }
+  .slot-value{
+    font-size:20px;
+    font-weight:bold;
+  }
+  .keys{
+    display:grid;
+    grid-template-columns:repeat(7,1fr);
+    gap:6px;
+  }
+  button{
+    border:none;
+    border-radius:8px;
+    padding:10px 6px;
+    font-size:15px;
+    font-weight:bold;
+    cursor:pointer;
+  }
+  .card-btn{background:#222;color:#fff}
+  .ctrl-btn{background:#4d4d4d;color:#fff}
+  .player{background:#0b63ff;color:#fff}
+  .banker{background:#d10000;color:#fff}
+  .tie{background:#888;color:#fff}
+  .grid3{
+    display:grid;
+    grid-template-columns:repeat(3,1fr);
+    gap:8px;
+    margin-top:8px;
+  }
+  .line{
+    margin:6px 0;
+    line-height:1.5;
+    word-break:break-word;
+    font-size:15px;
+  }
+  .hi{color:#ffd54f;font-weight:bold}
+  .good{color:#61ff95;font-weight:bold}
+  .bad{color:#ff6b6b;font-weight:bold}
+  .neutral{color:#ffb74d;font-weight:bold}
+  .history-item{
+    background:#181818;
+    border:1px solid #2c2c2c;
+    border-radius:8px;
+    padding:8px;
+    margin-bottom:6px;
+    font-size:13px;
+    line-height:1.5;
+    word-break:break-word;
+  }
+  .small{font-size:12px;color:#bcbcbc}
+  @media (max-width:700px){
+    .slots{grid-template-columns:repeat(3,1fr)}
+    .keys{grid-template-columns:repeat(4,1fr)}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h2>大牌判斷系統</h2>
+
+  <div class="panel">
+    <div class="slots" id="slots"></div>
+
+    <div class="keys" id="keys"></div>
+
+    <div class="grid3">
+      <button class="ctrl-btn" onclick="skipSlot()">跳過</button>
+      <button class="ctrl-btn" onclick="backspaceCard()">刪除</button>
+      <button class="ctrl-btn" onclick="resetRound()">清除本局</button>
+    </div>
+
+    <div class="grid3">
+      <button class="player" onclick="setResult('閒')">本局結果：閒</button>
+      <button class="banker" onclick="setResult('莊')">本局結果：莊</button>
+      <button class="tie" onclick="setResult('和')">本局結果：和</button>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="line" id="currentCards"></div>
+    <div class="line" id="preAnalysis"></div>
+    <div class="line" id="rulePreview"></div>
+    <div class="line" id="currentAdviceLine"></div>
+    <div class="line" id="statsLine"></div>
+  </div>
+
+  <div class="panel">
+    <div class="line"><b>最近10筆</b></div>
+    <div id="historyList"></div>
+  </div>
+</div>
+
+<script>
+const CARD_KEYS = ["A","2","3","4","5","6","7","8","9","10","J","Q","K"];
+const SLOT_NAMES = ["P1","P2","B1","B2","P3","B3"];
+const STORAGE_KEY = "big_card_system_v4";
+
+let roundCards = ["","","","","",""];
+let cursor = 0;
+
+let saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || "{}");
+let historyData = saved.historyData || [];
+let currentAdvice = saved.currentAdvice || "尚無"; // 上一局留給本局的建議
+let roundCounter = saved.roundCounter || 0;
+
+function saveAll(){
+  localStorage.setItem(STORAGE_KEY, JSON.stringify({
+    historyData,
+    currentAdvice,
+    roundCounter
+  }));
+}
+
+function isBig(card){
+  return ["6","7","8","9"].includes(card);
+}
+function isRealCard(card){
+  return card && card !== "-";
+}
+function countBig(arr){
+  return arr.filter(isBig).length;
+}
+function getActualCards(){
+  return roundCards.filter(isRealCard);
+}
+function getActualCount(){
+  return getActualCards().length;
+}
+function getLastActualCard(){
+  for(let i=5;i>=0;i--){
+    if(isRealCard(roundCards[i])) return roundCards[i];
+  }
+  return "";
+}
+function getLastDrawSide(){
+  if(isRealCard(roundCards[5])) return "莊";
+  if(isRealCard(roundCards[4])) return "閒";
+  return "";
+}
+function getFirst4Player(){
+  return [roundCards[0], roundCards[1]].filter(isRealCard);
+}
+function getFirst4Banker(){
+  return [roundCards[2], roundCards[3]].filter(isRealCard);
+}
+function getDisplayCards(){
+  return roundCards.map(v => v || "-").join(" / ");
+}
+function oppositeOf(result){
+  if(result === "閒") return "莊";
+  if(result === "莊") return "閒";
+  return "觀望";
+}
+
+function analyzeCurrentRound(result = null){
+  const actualCount = getActualCount();
+  const p2 = getFirst4Player();
+  const b2 = getFirst4Banker();
+  const pBig = countBig(p2);
+  const bBig = countBig(b2);
+  const totalBig = pBig + bBig;
+
+  let mode = "";
+  let ruleText = "";
+  let nextBet = "觀望";
+
+  if(actualCount < 4){
+    return {
+      mode: "未完成",
+      ruleText: "請先輸入前4張：P1 / P2 / B1 / B2",
+      nextBet: "觀望",
+      pBig, bBig
+    };
+  }
+
+  if(actualCount === 4){
+    mode = "4張定輸贏";
+
+    if(totalBig === 0){
+      ruleText = "四張全小牌 → 下把續打這把一樣的";
+      nextBet = result ? result : "待本局結果";
+    } else if(pBig > bBig){
+      ruleText = `4張局｜閒大牌 ${pBig} 張｜莊大牌 ${bBig} 張 → 下把打閒`;
+      nextBet = "閒";
+    } else if(bBig > pBig){
+      ruleText = `4張局｜閒大牌 ${pBig} 張｜莊大牌 ${bBig} 張 → 下把打莊`;
+      nextBet = "莊";
+    } else {
+      ruleText = `4張局｜閒大牌 ${pBig} 張｜莊大牌 ${bBig} 張 → 一樣多，下把打這把對邊`;
+      nextBet = result ? oppositeOf(result) : "待本局結果";
+    }
+  } else {
+    mode = "補牌局";
+    const lastCard = getLastActualCard();
+    const lastSide = getLastDrawSide();
+
+    if(isBig(lastCard)){
+      ruleText = `補牌局｜最後補牌：${lastSide}補 ${lastCard}（大牌）→ 補大牌反邊，下把打這把對邊`;
+      nextBet = result ? oppositeOf(result) : "待本局結果";
+    } else {
+      if(totalBig > 0){
+        if(pBig > bBig){
+          ruleText = `補小牌｜前4張仍有大牌，閒 ${pBig} 張｜莊 ${bBig} 張 → 下把打閒`;
+          nextBet = "閒";
+        } else if(bBig > pBig){
+          ruleText = `補小牌｜前4張仍有大牌，閒 ${pBig} 張｜莊 ${bBig} 張 → 下把打莊`;
+          nextBet = "莊";
+        } else {
+          ruleText = `補小牌｜前4張有大牌但一樣多 → 下把打這把對邊`;
+          nextBet = result ? oppositeOf(result) : "待本局結果";
+        }
+      } else {
+        ruleText = `補小牌｜兩邊都沒有大牌 → 下把打這把一樣的`;
+        nextBet = result ? result : "待本局結果";
+      }
+    }
+  }
+
+  return {
+    mode,
+    ruleText,
+    nextBet,
+    pBig,
+    bBig
+  };
+}
+
+function judgeAdvice(advice, actualResult){
+  if(!advice || advice === "尚無" || advice === "觀望" || advice === "待本局結果"){
+    return "待驗證";
+  }
+  if(actualResult === "和"){
+    return "和";
+  }
+  return advice === actualResult ? "準" : "失敗";
+}
+
+function renderSlots(){
+  const slots = document.getElementById("slots");
+  slots.innerHTML = "";
+  SLOT_NAMES.forEach((name, i) => {
+    const active = i === cursor ? " active" : "";
+    const div = document.createElement("div");
+    div.className = "slot" + active;
+    div.innerHTML = `
+      <div class="slot-label">${name}</div>
+      <div class="slot-value">${roundCards[i] || "-"}</div>
+    `;
+    slots.appendChild(div);
+  });
+}
+
+function renderKeys(){
+  const keys = document.getElementById("keys");
+  keys.innerHTML = "";
+  CARD_KEYS.forEach(card => {
+    const btn = document.createElement("button");
+    btn.className = "card-btn";
+    btn.textContent = card;
+    btn.onclick = () => inputCard(card);
+    keys.appendChild(btn);
+  });
+}
+
+function moveCursorForward(){
+  while(cursor < 6 && roundCards[cursor] !== ""){
+    cursor++;
+  }
+}
+
+function inputCard(card){
+  if(cursor >= 6) return;
+  roundCards[cursor] = card;
+  moveCursorForward();
+  refreshUI();
+}
+
+function skipSlot(){
+  if(cursor >= 6) return;
+  roundCards[cursor] = "-";
+  moveCursorForward();
+  refreshUI();
+}
+
+function backspaceCard(){
+  let i = cursor - 1;
+  if(cursor >= 6 && roundCards[5] !== ""){
+    i = 5;
+  } else {
+    while(i >= 0 && roundCards[i] === "") i--;
+  }
+  if(i >= 0){
+    roundCards[i] = "";
+    cursor = i;
+    refreshUI();
+  }
+}
+
+function resetRound(){
+  roundCards = ["","","","","",""];
+  cursor = 0;
+  refreshUI();
+}
+
+function setResult(result){
+  if(getActualCount() < 4){
+    alert("至少要輸入4張實牌才能記錄結果");
+    return;
+  }
+
+  // 先判斷：上一局留給本局的建議，這局有沒有準
+  const receivedAdvice = currentAdvice || "尚無";
+  const judge = judgeAdvice(receivedAdvice, result);
+
+  // 再算：這局結束後，留給下一局的建議
+  const ana = analyzeCurrentRound(result);
+  const nextAdvice = ana.nextBet;
+
+  roundCounter += 1;
+
+  const record = {
+    roundNo: roundCounter,
+    cards: [...roundCards],
+    result,
+    mode: ana.mode,
+    receivedAdvice,
+    judge,
+    note: ana.ruleText,
+    nextBet: nextAdvice
+  };
+
+  historyData.unshift(record);
+  historyData = historyData.slice(0, 10);
+
+  // 更新成給下一局的建議
+  currentAdvice = nextAdvice;
+
+  saveAll();
+  resetRound();
+  renderHistory();
+  renderStats();
+}
+
+function renderHistory(){
+  const el = document.getElementById("historyList");
+  el.innerHTML = "";
+
+  if(historyData.length === 0){
+    el.innerHTML = `<div class="small">尚無紀錄</div>`;
+    return;
+  }
+
+  historyData.forEach(item => {
+    let cls = "neutral";
+    if(item.judge === "準") cls = "good";
+    else if(item.judge === "失敗") cls = "bad";
+    else if(item.judge === "和") cls = "neutral";
+
+    const div = document.createElement("div");
+    div.className = "history-item";
+    div.innerHTML = `
+      <div>第 ${item.roundNo} 局｜本局結果：<span class="hi">${item.result}</span>｜收到建議：<span class="hi">${item.receivedAdvice}</span></div>
+      <div>判定：<span class="${cls}">${item.judge}</span>｜下局建議：<span class="hi">${item.nextBet}</span></div>
+      <div>${item.cards.map(v => v || "-").join(" / ")}</div>
+      <div>${item.note}</div>
+    `;
+    el.appendChild(div);
+  });
+}
+
+function renderStats(){
+  let total = 0;
+  let hit = 0;
+  let lose = 0;
+  let tie = 0;
+
+  let fourCnt = 0, fourHit = 0;
+  let bigDrawCnt = 0, bigDrawHit = 0;
+
+  historyData.forEach(item => {
+    if(item.judge === "準" || item.judge === "失敗" || item.judge === "和"){
+      if(item.receivedAdvice !== "尚無" && item.receivedAdvice !== "觀望" && item.receivedAdvice !== "待本局結果"){
+        total++;
+        if(item.judge === "準") hit++;
+        if(item.judge === "失敗") lose++;
+        if(item.judge === "和") tie++;
+      }
+    }
+
+    if(item.mode === "4張定輸贏"){
+      if(item.receivedAdvice !== "尚無" && item.receivedAdvice !== "觀望" && item.receivedAdvice !== "待本局結果"){
+        fourCnt++;
+        if(item.judge === "準") fourHit++;
+      }
+    }
+
+    if(item.note.includes("補大牌反邊")){
+      if(item.receivedAdvice !== "尚無" && item.receivedAdvice !== "觀望" && item.receivedAdvice !== "待本局結果"){
+        bigDrawCnt++;
+        if(item.judge === "準") bigDrawHit++;
+      }
+    }
+  });
+
+  const totalRate = total ? ((hit / total) * 100).toFixed(1) : "0.0";
+  const fourRate = fourCnt ? ((fourHit / fourCnt) * 100).toFixed(1) : "0.0";
+  const bigDrawRate = bigDrawCnt ? ((bigDrawHit / bigDrawCnt) * 100).toFixed(1) : "0.0";
+
+  document.getElementById("statsLine").innerHTML =
+    `總命中率：<span class="hi">${totalRate}%</span>（${hit}/${total}）｜4張局：<span class="hi">${fourRate}%</span>（${fourHit}/${fourCnt}）｜補大牌反邊：<span class="hi">${bigDrawRate}%</span>（${bigDrawHit}/${bigDrawCnt}）`;
+}
+
+function refreshUI(){
+  renderSlots();
+
+  document.getElementById("currentCards").innerHTML =
+    `本局牌：<span class="hi">${getDisplayCards()}</span>`;
+
+  const count = getActualCount();
+  if(count < 4){
+    document.getElementById("preAnalysis").innerHTML = `目前模式：<span class="hi">尚未完成前4張</span>`;
+    document.getElementById("rulePreview").innerHTML = `規則預覽：請先輸入 P1 / P2 / B1 / B2`;
+  } else {
+    const ana = analyzeCurrentRound(null);
+    document.getElementById("preAnalysis").innerHTML =
+      `目前模式：<span class="hi">${ana.mode}</span>｜前4張大牌：閒 ${ana.pBig} 張｜莊 ${ana.bBig} 張`;
+    document.getElementById("rulePreview").innerHTML =
+      `本局結束後將算出：${ana.ruleText}`;
+  }
+
+  document.getElementById("currentAdviceLine").innerHTML =
+    `本局目前要驗證的建議：<span class="hi">${currentAdvice || "尚無"}</span>`;
+}
+
+renderKeys();
+renderHistory();
+renderStats();
+refreshUI();
+</script>
+</body>
+</html>
